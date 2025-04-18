@@ -106,98 +106,97 @@ static TreeNode *build_slicing_tree(Module *mods[], int start, int end) {
     return node;
 }
 
-
- int parse_input(const char *filename, Floorplan *fp) {
-     FILE *in = fopen(filename, "r");
-     if (!in) {
-         fprintf(stderr, "Error: cannot open input file %s\n", filename);
-         return -1;
-     }
-     char token[256];
-     if (fscanf(in, "%255s %d %d", token, &fp->chipWidth, &fp->chipHeight) != 3 || strcmp(token, "ChipSize") != 0) {
-         fprintf(stderr, "Error: expected 'ChipSize <width> <height>'\n");
-         fclose(in);
-         return -1;
-     }
-     int nsoft = 0;
-     if (fscanf(in, "%255s %d", token, &nsoft) != 2 || strcmp(token, "NumSoftModules") != 0) {
-         fprintf(stderr, "Error: expected 'NumSoftModules <count>'\n");
-         fclose(in);
-         return -1;
-     }
-     fp->nsoft = nsoft;
-     fp->modules = malloc(sizeof(Module) * (nsoft));
-     if (!fp->modules) { fclose(in); return -1; }
-     for (int i = 0; i < nsoft; i++) {
-         if (fscanf(in, "%255s", token) != 1 || strcmp(token, "SoftModule") != 0) {
-             fprintf(stderr, "Error: expected 'SoftModule'\n"); fclose(in); return -1;
-         }
-         char name[256]; int area;
-         if (fscanf(in, "%255s %d", name, &area) != 2) {
-             fprintf(stderr, "Error: invalid 'SoftModule <name> <area>'\n"); fclose(in); return -1;
-         }
-         fp->modules[i].name = strdup(name);
-         fp->modules[i].min_area = area;
-         fp->modules[i].isFixed = 0;
-         fp->modules[i].x = fp->modules[i].y = fp->modules[i].w = fp->modules[i].h = 0;
-     }
-     int nf = 0;
-     if (fscanf(in, "%255s %d", token, &nf) != 2 || strcmp(token, "NumFixedModules") != 0) {
-         fprintf(stderr, "Error: expected 'NumFixedModules <count>'\n"); fclose(in); return -1;
-     }
-     fp->nf = nf;
-     fp->modules = realloc(fp->modules, sizeof(Module) * (nsoft + nf));
-     if (!fp->modules) { fclose(in); return -1; }
-     for (int i = 0; i < nf; i++) {
-         if (fscanf(in, "%255s", token) != 1 || strcmp(token, "FixedModule") != 0) {
-             fprintf(stderr, "Error: expected 'FixedModule'\n"); fclose(in); return -1;
-         }
-         char name[256]; int x, y, w, h;
-         if (fscanf(in, "%255s %d %d %d %d", name, &x, &y, &w, &h) != 5) {
-             fprintf(stderr, "Error: invalid 'FixedModule <name> <x> <y> <w> <h>'\n"); fclose(in); return -1;
-         }
-         int idx = nsoft + i;
-         fp->modules[idx].name = strdup(name);
-         fp->modules[idx].min_area = 0;
-         fp->modules[idx].isFixed = 1;
-         fp->modules[idx].x = x;
-         fp->modules[idx].y = y;
-         fp->modules[idx].w = w;
-         fp->modules[idx].h = h;
-     }
-     fp->nModules = nsoft + nf;
-     int nn = 0;
-     if (fscanf(in, "%255s %d", token, &nn) != 2 || strcmp(token, "NumNets") != 0) {
-         fprintf(stderr, "Error: expected 'NumNets <count>'\n"); fclose(in); return -1;
-     }
-     fp->nNets = nn;
-     fp->nets = malloc(sizeof(Net) * nn);
-     if (!fp->nets) { fclose(in); return -1; }
-     for (int i = 0; i < nn; i++) {
-         if (fscanf(in, "%255s", token) != 1 || strcmp(token, "Net") != 0) {
-             fprintf(stderr, "Error: expected 'Net'\n"); fclose(in); return -1;
-         }
-         char n1[256], n2[256]; int wt;
-         if (fscanf(in, "%255s %255s %d", n1, n2, &wt) != 3) {
-             fprintf(stderr, "Error: invalid 'Net <mod1> <mod2> <weight>'\n"); fclose(in); return -1;
-         }
-         int u = -1, v = -1;
-         for (int j = 0; j < fp->nModules; j++) {
-             if (strcmp(fp->modules[j].name, n1) == 0) u = j;
-             if (strcmp(fp->modules[j].name, n2) == 0) v = j;
-         }
-         if (u < 0 || v < 0) {
-             fprintf(stderr, "Error: Net refers to unknown module '%s' or '%s'\n", n1, n2);
-             fclose(in);
-             return -1;
-         }
-         fp->nets[i].u = u;
-         fp->nets[i].v = v;
-         fp->nets[i].weight = wt;
-     }
-     fclose(in);
-     return 0;
- }
+int parse_input(const char *filename, Floorplan *fp) {
+    FILE *in = fopen(filename, "r");
+    if (!in) {
+        fprintf(stderr, "Error: cannot open input file %s\n", filename);
+        return -1;
+    }
+    char token[256];
+    if (fscanf(in, "%255s %d %d", token, &fp->chipWidth, &fp->chipHeight) != 3 || strcmp(token, "ChipSize") != 0) {
+        fprintf(stderr, "Error: expected 'ChipSize <width> <height>'\n");
+        fclose(in);
+        return -1;
+    }
+    int nsoft = 0;
+    if (fscanf(in, "%255s %d", token, &nsoft) != 2 || strcmp(token, "NumSoftModules") != 0) {
+        fprintf(stderr, "Error: expected 'NumSoftModules <count>'\n");
+        fclose(in);
+        return -1;
+    }
+    fp->nsoft = nsoft;
+    fp->modules = malloc(sizeof(Module) * (nsoft));
+    if (!fp->modules) { fclose(in); return -1; }
+    for (int i = 0; i < nsoft; i++) {
+        if (fscanf(in, "%255s", token) != 1 || strcmp(token, "SoftModule") != 0) {
+            fprintf(stderr, "Error: expected 'SoftModule'\n"); fclose(in); return -1;
+        }
+        char name[256]; int area;
+        if (fscanf(in, "%255s %d", name, &area) != 2) {
+            fprintf(stderr, "Error: invalid 'SoftModule <name> <area>'\n"); fclose(in); return -1;
+        }
+        fp->modules[i].name = strdup(name);
+        fp->modules[i].min_area = area;
+        fp->modules[i].isFixed = 0;
+        fp->modules[i].x = fp->modules[i].y = fp->modules[i].w = fp->modules[i].h = 0;
+    }
+    int nf = 0;
+    if (fscanf(in, "%255s %d", token, &nf) != 2 || strcmp(token, "NumFixedModules") != 0) {
+        fprintf(stderr, "Error: expected 'NumFixedModules <count>'\n"); fclose(in); return -1;
+    }
+    fp->nf = nf;
+    fp->modules = realloc(fp->modules, sizeof(Module) * (nsoft + nf));
+    if (!fp->modules) { fclose(in); return -1; }
+    for (int i = 0; i < nf; i++) {
+        if (fscanf(in, "%255s", token) != 1 || strcmp(token, "FixedModule") != 0) {
+            fprintf(stderr, "Error: expected 'FixedModule'\n"); fclose(in); return -1;
+        }
+        char name[256]; int x, y, w, h;
+        if (fscanf(in, "%255s %d %d %d %d", name, &x, &y, &w, &h) != 5) {
+            fprintf(stderr, "Error: invalid 'FixedModule <name> <x> <y> <w> <h>'\n"); fclose(in); return -1;
+        }
+        int idx = nsoft + i;
+        fp->modules[idx].name = strdup(name);
+        fp->modules[idx].min_area = 0;
+        fp->modules[idx].isFixed = 1;
+        fp->modules[idx].x = x;
+        fp->modules[idx].y = y;
+        fp->modules[idx].w = w;
+        fp->modules[idx].h = h;
+    }
+    fp->nModules = nsoft + nf;
+    int nn = 0;
+    if (fscanf(in, "%255s %d", token, &nn) != 2 || strcmp(token, "NumNets") != 0) {
+        fprintf(stderr, "Error: expected 'NumNets <count>'\n"); fclose(in); return -1;
+    }
+    fp->nNets = nn;
+    fp->nets = malloc(sizeof(Net) * nn);
+    if (!fp->nets) { fclose(in); return -1; }
+    for (int i = 0; i < nn; i++) {
+        if (fscanf(in, "%255s", token) != 1 || strcmp(token, "Net") != 0) {
+            fprintf(stderr, "Error: expected 'Net'\n"); fclose(in); return -1;
+        }
+        char n1[256], n2[256]; int wt;
+        if (fscanf(in, "%255s %255s %d", n1, n2, &wt) != 3) {
+            fprintf(stderr, "Error: invalid 'Net <mod1> <mod2> <weight>'\n"); fclose(in); return -1;
+        }
+        int u = -1, v = -1;
+        for (int j = 0; j < fp->nModules; j++) {
+            if (strcmp(fp->modules[j].name, n1) == 0) u = j;
+            if (strcmp(fp->modules[j].name, n2) == 0) v = j;
+        }
+        if (u < 0 || v < 0) {
+            fprintf(stderr, "Error: Net refers to unknown module '%s' or '%s'\n", n1, n2);
+            fclose(in);
+            return -1;
+        }
+        fp->nets[i].u = u;
+        fp->nets[i].v = v;
+        fp->nets[i].weight = wt;
+    }
+    fclose(in);
+    return 0;
+}
 
 void compute_floorplan(Floorplan *fp) {
     // determine dimensions for soft modules (square approximation within aspect ratio limits)
@@ -229,69 +228,69 @@ void compute_floorplan(Floorplan *fp) {
     free_tree(root);
 }
 
- int compute_wirelength(const Floorplan *fp) {
-     int total = 0;
-     for (int i = 0; i < fp->nNets; i++) {
-         const Net *net = &fp->nets[i];
-         const Module *u = &fp->modules[net->u];
-         const Module *v = &fp->modules[net->v];
-         int cx_u = u->x + u->w / 2;
-         int cy_u = u->y + u->h / 2;
-         int cx_v = v->x + v->w / 2;
-         int cy_v = v->y + v->h / 2;
-         int dx = abs(cx_u - cx_v);
-         int dy = abs(cy_u - cy_v);
-         total += (dx + dy) * net->weight;
-     }
-     return total;
- }
+int compute_wirelength(const Floorplan *fp) {
+    int total = 0;
+    for (int i = 0; i < fp->nNets; i++) {
+        const Net *net = &fp->nets[i];
+        const Module *u = &fp->modules[net->u];
+        const Module *v = &fp->modules[net->v];
+        int cx_u = u->x + u->w / 2;
+        int cy_u = u->y + u->h / 2;
+        int cx_v = v->x + v->w / 2;
+        int cy_v = v->y + v->h / 2;
+        int dx = abs(cx_u - cx_v);
+        int dy = abs(cy_u - cy_v);
+        total += (dx + dy) * net->weight;
+    }
+    return total;
+}
 
- int write_output(const char *filename, const Floorplan *fp) {
-     FILE *out = stdout;
-     if (filename) {
-         out = fopen(filename, "w");
-         if (!out) {
-             fprintf(stderr, "Error: cannot open output file %s\n", filename);
-             return -1;
-         }
-     }
-     int wl = compute_wirelength(fp);
-     fprintf(out, "Wirelength %d\n", wl);
-     fprintf(out, "NumSoftModules %d\n", fp->nsoft);
-     for (int i = 0; i < fp->nsoft; i++) {
-         const Module *m = &fp->modules[i];
-         fprintf(out, "%s %d %d %d %d\n", m->name, m->x, m->y, m->w, m->h);
-     }
-     if (out != stdout) fclose(out);
-     return 0;
- }
+int write_output(const char *filename, const Floorplan *fp) {
+    FILE *out = stdout;
+    if (filename) {
+        out = fopen(filename, "w");
+        if (!out) {
+            fprintf(stderr, "Error: cannot open output file %s\n", filename);
+            return -1;
+        }
+    }
+    int wl = compute_wirelength(fp);
+    fprintf(out, "Wirelength %d\n", wl);
+    fprintf(out, "NumSoftModules %d\n", fp->nsoft);
+    for (int i = 0; i < fp->nsoft; i++) {
+        const Module *m = &fp->modules[i];
+        fprintf(out, "%s %d %d %d %d\n", m->name, m->x, m->y, m->w, m->h);
+    }
+    if (out != stdout) fclose(out);
+    return 0;
+}
 
- void free_floorplan(Floorplan *fp) {
-     if (!fp) return;
-     for (int i = 0; i < fp->nModules; i++) {
-         free(fp->modules[i].name);
-     }
-     free(fp->modules);
-     free(fp->nets);
- }
+void free_floorplan(Floorplan *fp) {
+    if (!fp) return;
+    for (int i = 0; i < fp->nModules; i++) {
+        free(fp->modules[i].name);
+    }
+    free(fp->modules);
+    free(fp->nets);
+}
 
- int main(int argc, char *argv[]) {
-     if (argc < 3) {
-         fprintf(stderr, "Usage: %s <input.txt> <output.floorplan>\n", argv[0]);
-         return 1;
-     }
-     struct timeval tv_start, tv_end;
-     gettimeofday(&tv_start, NULL);
+int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <input.txt> <output.floorplan>\n", argv[0]);
+        return 1;
+    }
+    struct timeval tv_start, tv_end;
+    gettimeofday(&tv_start, NULL);
 
-     Floorplan fpData = {0};
-     if (parse_input(argv[1], &fpData) != 0) return 1;
-     compute_floorplan(&fpData);
+    Floorplan fpData = {0};
+    if (parse_input(argv[1], &fpData) != 0) return 1;
+    compute_floorplan(&fpData);
 
-     int hpwl = compute_wirelength(&fpData);
-     if (write_output(argv[2], &fpData) != 0) {
-         free_floorplan(&fpData);
-         return 1;
-     }
+    int hpwl = compute_wirelength(&fpData);
+    if (write_output(argv[2], &fpData) != 0) {
+        free_floorplan(&fpData);
+        return 1;
+    }
 
     printf("HPWL: %d\n", hpwl);
     // Check for any overlapping modules (pairwise)
@@ -314,6 +313,6 @@ void compute_floorplan(Floorplan *fp) {
                      (tv_end.tv_usec - tv_start.tv_usec) / 1e6;
     printf("Total execution time: %.6f seconds\n", elapsed);
 
-     free_floorplan(&fpData);
-     return 0;
- }
+    free_floorplan(&fpData);
+    return 0;
+}
