@@ -80,6 +80,22 @@ static void free_tree(TreeNode *node) {
     }
     free(node);
 }
+
+// Compute the wire length of a given cut direction
+static int compute_wirelength_for_cut(Module *mods[], int start, int end, char op) {
+    int total = 0;
+    for (int i = start; i < end; i++) {
+        Module *m = &mods[i];
+        int cx = m->x + m->w / 2;
+        if (op == 'H') {
+            total += abs(cx - (start + end) / 2);
+        } else {
+            total += abs(m->y + m->h / 2 - (start + end) / 2);
+        }
+    }
+    return total;
+}
+
 // Build a slicing tree for soft modules using greedy divide-and-conquer
 static TreeNode *build_slicing_tree(Module *mods[], int start, int end) {
     if (start + 1 == end) {
@@ -88,13 +104,20 @@ static TreeNode *build_slicing_tree(Module *mods[], int start, int end) {
     int mid = (start + end) / 2;
     TreeNode *left = build_slicing_tree(mods, start, mid);
     TreeNode *right = build_slicing_tree(mods, mid, end);
+
+    // Compute wire length for both horizontal and vertical cuts
     int w_h = left->w > right->w ? left->w : right->w;
     int h_h = left->h + right->h;
     long area_h = (long)w_h * h_h;
     int w_v = left->w + right->w;
     int h_v = left->h > right->h ? left->h : right->h;
     long area_v = (long)w_v * h_v;
+
     char op = (area_h < area_v ? 'H' : 'V');
+
+    // Compute wire length for the chosen cut direction
+    int wl = compute_wirelength_for_cut(mods, start, end, op);
+
     TreeNode *node = create_internal(op, left, right);
     if (op == 'H') {
         node->w = w_h;
