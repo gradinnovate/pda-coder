@@ -6,6 +6,18 @@
 #include <stdbool.h>
 #include "floorplan.h"
 
+// Structure for sorting modules by connectivity weight descending
+// Used to group highly connected modules together for better wirelength
+typedef struct {
+    Module *m;
+    int ws;
+} ModWS;
+// Comparator for ModWS sorting: descending weight sum
+static int cmp_modws(const void *a, const void *b) {
+    const ModWS *ma = (const ModWS *)a;
+    const ModWS *mb = (const ModWS *)b;
+    return mb->ws - ma->ws;
+}
 // Slicing tree node for floorplanning
 typedef struct TreeNode {
     int isLeaf;       // 1 if leaf (module), 0 if internal node
@@ -85,7 +97,8 @@ static void free_tree(TreeNode *node) {
 static int compute_wirelength_for_cut(Module *mods[], int start, int end, char op) {
     int total = 0;
     for (int i = start; i < end; i++) {
-        Module *m = &mods[i];
+        // retrieve module pointer from array
+        Module *m = mods[i];
         int cx = m->x + m->w / 2;
         if (op == 'H') {
             total += abs(cx - (start + end) / 2);
@@ -94,6 +107,28 @@ static int compute_wirelength_for_cut(Module *mods[], int start, int end, char o
         }
     }
     return total;
+}
+// Recursively attempt to improve cut orientations to reduce HPWL
+static void recut_opt(TreeNode *node, TreeNode *root, Floorplan *fp, int base_y, int *best_wl) {
+    if (node->isLeaf) return;
+    char orig_op = node->op;
+    char new_op = (orig_op == 'H' ? 'V' : 'H');
+    // try flipped cut
+    node->op = new_op;
+    evaluate_node(root);
+    assign_positions(root, 0, base_y);
+    int wl_new = compute_wirelength(fp);
+    if (wl_new < *best_wl) {
+        *best_wl = wl_new;
+    } else {
+        // revert if no improvement
+        node->op = orig_op;
+        evaluate_node(root);
+        assign_positions(root, 0, base_y);
+    }
+    // recurse on children
+    recut_opt(node->left, root, fp, base_y, best_wl);
+    recut_opt(node->right, root, fp, base_y, best_wl);
 }
 
 // Build a slicing tree for soft modules using greedy divide-and-conquer
@@ -113,9 +148,10 @@ static TreeNode *build_slicing_tree(Module *mods[], int start, int end) {
     int h_v = left->h > right->h ? left->h : right->h;
     long area_v = (long)w_v * h_v;
 
+    // Select cut direction based on area
     char op = (area_h < area_v ? 'H' : 'V');
 
-    // Compute wire length for the chosen cut direction
+    // Compute wire length for the chosen cut direction (unused, for potential analysis)
     int wl = compute_wirelength_for_cut(mods, start, end, op);
 
     TreeNode *node = create_internal(op, left, right);
@@ -233,10 +269,39 @@ void compute_floorplan(Floorplan *fp) {
     int n = fp->nsoft;
     if (n <= 0) return;
     // build slicing tree for soft modules (greedy divide-and-conquer)
+    // Order soft modules by connectivity (BFS on netlist) to group connected modules
     Module *softMods[n];
+    int order[n];
+    bool visited[n];
+    int queue[n];
+    // initialize visited flags
+    for (int i = 0; i < n; i++) visited[i] = false;
+    int idx = 0;
+    // BFS through netlist
     for (int i = 0; i < n; i++) {
-        softMods[i] = &fp->modules[i];
+        if (!visited[i]) {
+            int front = 0, back = 0;
+            visited[i] = true;
+            queue[back++] = i;
+            while (front < back) {
+                int u = queue[front++];
+                order[idx++] = u;
+                for (int j = 0; j < fp->nNets; j++) {
+                    int a = fp->nets[j].u;
+                    int b = fp->nets[j].v;
+                    if (a < n && a == u && b < n && !visited[b]) {
+                        visited[b] = true;
+                        queue[back++] = b;
+                    } else if (b < n && b == u && a < n && !visited[a]) {
+                        visited[a] = true;
+                        queue[back++] = a;
+                    }
+                }
+            }
+        }
     }
+    // fill softMods according to BFS order
+    for (int i = 0; i < n; i++) softMods[i] = &fp->modules[order[i]];
     TreeNode *root = build_slicing_tree(softMods, 0, n);
     // compute base y-coordinate to avoid fixed modules
     int base_y = 0;
@@ -245,8 +310,13 @@ void compute_floorplan(Floorplan *fp) {
         int top = f->y + f->h;
         if (top > base_y) base_y = top;
     }
-    // assign absolute positions starting at (0, base_y)
+    // initial positioning and compute current HPWL
+    evaluate_node(root);
     assign_positions(root, 0, base_y);
+    int best_wl = compute_wirelength(fp);
+    // optimize cut orientations to further reduce HPWL
+    recut_opt(root, root, fp, base_y, &best_wl);
+    // final positions already updated
     // free slicing tree nodes
     free_tree(root);
 }

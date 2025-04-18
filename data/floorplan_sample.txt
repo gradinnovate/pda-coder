@@ -1,0 +1,9 @@
+ChipSize 1000 1000
+NumSoftModules 2
+SoftModule M1 10000
+SoftModule M2 40000
+NumFixedModules 1
+FixedModule FM1 200 200 100 100
+NumNets 2
+Net M1 FM1 1
+Net M2 FM1 2
