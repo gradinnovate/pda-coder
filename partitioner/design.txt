@@ -1,0 +1,128 @@
+# Design Document for `hyperml`: Multilevel Hypergraph Partitioner
+
+## 1. Overview
+實作一個 2-way (k=2) multilevel hypergraph partitioner，包含四大階段：
+1. **Coarsening**：使用 hMETIS 的 Heavy‑Edge Matching(Hem) 將原始超圖逐層粗化。  
+2. **Initial Partitioning**：在最粗化層級上，以 Greedy + FM 演算法產生初始分割。  
+3. **Projection**：將分割結果投影回下一層粗化前的超圖。  
+4. **Refinement**：在每層投影後使用超圖版 FM 精煉，並滿足 balance constraint 與最小化 cut size。
+
+整體流程重複至原始超圖，最終輸出切割結果。
+
+## 2. 功能與需求
+- **2-way partitioning** (k=2)。  
+- 結果需同時滿足：  
+  - **Balance constraint**：各 partition 的頂點總權重在允許偏差 ε 範圍內。  
+  - **最小化** hyperedge cut size。  
+- **Coarsening**：  
+  - 採用 Heavy-Edge Matching (HEM)。  
+  - 原始頂點 & 超邊權重均為單位權重 (1)；粗化後權重為合併後之總和。  
+  - 控制粗化聚合大小，避免過度不均衡。  
+- **Initial Partitioning**：  
+  - 處理非單位頂點/超邊權重。  
+  - 演算法：Greedy-fill 按頂點權重 + FM 調整。  
+- **Refinement**：  
+  - 採用 hypergraph FM 演算法，考慮多頂點移動增益與 balance。  
+- 支援超圖規模至百萬頂點以下。  
+
+## 3. Balance Constraint 定義
+設超圖 $H(V,E)$，頂點權重 $w_v$，超邊權重 $w_e$，總頂點權重 $W=\sum_{v\in V}w_v$，分割數 $k=2$，允許偏差 $0\le\varepsilon\le1/k$，則分割集合 $S=\{S_0,S_1\}$ 必須滿足：
+$$
+\bigl(\frac{1}{k}-\varepsilon\bigr)W \le \sum_{v\in S_i}w_v \le \bigl(\frac{1}{k}+\varepsilon\bigr)W, \quad i=0,1
+$$
+Cut size 定義為所有跨分割的超邊權重總和：
+$$
+\mathrm{cutsize}(S) = \sum_{e\nsubseteq S_i} w_e.
+$$
+
+## 4. Input/Output 格式
+- **輸入**：檔案 `*.hgr`，第一行：`#nets #vertices`。後續每行列出 hyperedge：
+  ```
+  #nets #vertices
+  v1 v2 ... v_k    // 每行一條超邊，頂點編號從 1 開始
+  ```
+  範例檔：`ibm01.hgr`。
+- **輸出**：兩行分別列出分割結果：
+  ```
+  CutSize <cut_size>
+  Partition Sizes: <partition A size, partition B size>
+  Balance Deviation: <maximum balance deviation>
+  Total Execution Time: <total execution time>
+  ```
+
+## 5. 資料結構設計
+1. **Vertex**：
+   - `struct V { int id; size_t weight; int match; }`;  
+   - `match=-1` 表示未匹配。  
+2. **Hyperedge**：
+   - `struct E { vector<int> pins; size_t weight; }`.  
+3. **Hypergraph**：
+   - `vector<V> vertices; vector<E> edges;`  
+   - 建立「頂點→超邊」反向索引以加速匹配查詢。  
+4. **Coarsening Maps**：
+   - `vector<int> coarse_map`：原頂點到粗化頂點 ID 的映射。  
+   - 新增粗化層級的 `Hypergraph` 實例。  
+
+## 6. Multilevel Partitioning 流程
+
+### 6.1 Coarsening (hMETIS-style Heavy-Edge Matching)
+1. **初始化**：
+   - 所有頂點 `weight=1`、所有超邊 `weight=1`。
+2. **Matching**：
+   - 對頂點列表隨機或依度數排序。
+   - 對每未匹配頂點 $u$，  
+     - 掃描相鄰超邊 $e\in E(u)$，對每未匹配頂點 $v\in e$ 計算：
+       $$\text{score}(u,v)=\sum_{e:\{u,v\}\subseteq e}w(e).$$
+     - 選擇分數最高的 $v^*$（若 $>0$）做配對 $(u,v^*)$，否則保留 $u$ 獨立。  
+   - 標記已匹配頂點。  
+3. **生成粗化頂點**：
+   - 每對 `(u,v)` 合併成新頂點 $z$，$w(z)=w(u)+w(v)$；單點獨立保留。
+4. **重建超邊**：
+   - 對原邊 $e$，將其 pins 映射至新頂點 ID，刪除重複，產生 $e'$。
+   - $w(e')=\sum_{e_i\mapsto e'}w(e_i)$；合併重複 $e'$ 並累加權重。
+5. **不均衡管控**：
+   - 若 $w(z)>(1+\varepsilon)\frac{W}{2}$，則取消配對或改為次優匹配。
+6. **重複** 至 |V| 小於閾值 (e.g. 1000)。
+
+### 6.2 Initial Partitioning
+1. **Greedy Fill**：
+   - 按降序處理粗化頂點，依序將其放入當前重量較小之 partition，保持 balance。
+2. **FM 調整**：
+   - 計算各頂點移動增益 $\Delta$：減少 cutsize 且不違反 balance。
+   - 迴圈選擇最大正增益移動，更新 gain，直到無正增益。
+
+### 6.3 Projection
+- 將粗化層級的分割結果，透過 `coarse_map` 逐層映射回上一層。  
+- 每層均觸發一次 Refinement。
+
+### 6.4 Refinement (Hypergraph FM)
+- 與初始 FM 類似，但移動增益計算以超邊權重與多頂點集合為單位。  
+- 嚴格檢查移動後的 balance constraint。
+
+## 7. 實作細節
+- **語言**：C (文件 `hyperml.c`、頭檔 `hyperml.h`)  
+- **編譯**：提供 `Makefile`，產生可執行檔 `hyperml`。  
+- **記憶體**：針對百萬頂點優化結構配置與閒置釋放。
+- **效率**：  
+  - Coarsening：$O(|E| + |V|\log|V|)$  
+  - FM：$O((|V|+|E|)\log|V|)$。
+
+## 8. Makefile 範例
+```Makefile
+CC = gcc
+CFLAGS = -O3 -std=c11 -Wall -g
+
+all: hyperml
+
+hyperml: hyperml.c hyperml.h
+	$(CC) $(CFLAGS) hyperml.c -o hyperml
+
+clean:
+	rm -f hyperml
+```
+
+---
+
+以上為完整設計文件，涵蓋輸入格式、資料結構、多層粗化／分割流程，以及 C 語言實作細節。
+
+
