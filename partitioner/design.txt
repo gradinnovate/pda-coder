@@ -1,7 +1,7 @@
 # Design Document for `hyperml`: Multilevel Hypergraph Partitioner
 
 ## 1. Overview
-實作一個 2-way (k=2) multilevel hypergraph partitioner，包含四大階段：
+實現一個 2-way (k=2) multilevel hypergraph partitioner，包含四大階段：
 1. **Coarsening**：使用 hMETIS 的 Heavy‑Edge Matching(Hem) 將原始超圖逐層粗化。  
 2. **Initial Partitioning**：在最粗化層級上，以 Greedy + FM 演算法產生初始分割。  
 3. **Projection**：將分割結果投影回下一層粗化前的超圖。  
@@ -124,5 +124,4 @@ clean:
 ---
 
 以上為完整設計文件，涵蓋輸入格式、資料結構、多層粗化／分割流程，以及 C 語言實作細節。
-
-
+```
